@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Hand-written Visual Studio project that uses an *installed* STIR without CMake.
+  This mirrors what the reporter of UCL/STIR#1483 did, plus the settings that
+  STIR's exported CMake targets would otherwise add automatically.
+
+  Pass on the msbuild command line (or edit the defaults below):
+    StirIncludeDir  e.g. C:\stir\install\include\STIR-6.3
+    StirLibDir      e.g. C:\stir\install\lib
+    StirRegistryDir e.g. C:\stir\install\share\STIR-6.3\src
+    BoostIncludeDir e.g. C:\boost_1_86_0
+-->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{6B1C1E2A-5A0F-4C7E-9E7B-3F1D2A4B5C6D}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>StirConsumer</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <StirIncludeDir Condition="'$(StirIncludeDir)'==''">C:\stir\install\include\STIR-6.3</StirIncludeDir>
+    <StirLibDir Condition="'$(StirLibDir)'==''">C:\stir\install\lib</StirLibDir>
+    <StirRegistryDir Condition="'$(StirRegistryDir)'==''">C:\stir\install\share\STIR-6.3\src</StirRegistryDir>
+    <BoostIncludeDir Condition="'$(BoostIncludeDir)'==''">C:\boost</BoostIncludeDir>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <!-- whichever toolset ships with the installed Visual Studio (v143 for VS 2022, newer for later VS) -->
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <!-- 1. STIR needs C++17 (VS defaults to C++14 -> error C2512, UCL/STIR#1483) -->
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <!-- 2. STIR is built with OpenMP by default and exports it -->
+      <OpenMPSupport>true</OpenMPSupport>
+      <!-- 3. must match STIR's Release build (/MD) -->
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <!-- 4. headers: installed STIR (incl. generated stir/config.h), its parent include dir, Boost -->
+      <AdditionalIncludeDirectories>$(StirIncludeDir);$(StirIncludeDir)\..;$(BoostIncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- 5. exported by the stir_registries target for non-CUDA builds -->
+      <PreprocessorDefinitions>CUVEC_DISABLE_CUDA;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <WarningLevel>Level3</WarningLevel>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalLibraryDirectories>$(StirLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <!-- 6. every installed STIR .lib (filled in below from a wildcard) -->
+      <AdditionalDependencies>@(StirLib->'%(Filename)%(Extension)');%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <StirLib Include="$(StirLibDir)\*.lib" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ClCompile Include="demo_create_image.cxx" />
+    <!-- 7. STIR's registries are NOT inside any .lib: compile the installed sources into the program -->
+    <ClCompile Include="$(StirRegistryDir)\*_registries.cxx" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

@@ -1,0 +1,128 @@
+name: STIR from a hand-written Visual Studio solution
+
+# Validates that an installed STIR can be used from a plain .sln/.vcxproj (no CMake),
+# as attempted in https://github.com/UCL/STIR/issues/1483.
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      stir_ref:
+        description: "UCL/STIR branch, tag or commit to test"
+        default: "master"
+
+env:
+  STIR_REF: ${{ github.event.inputs.stir_ref || 'master' }}
+  BOOST_VERSION: "1.86.0"
+
+jobs:
+  vs-consumer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Visual Studio version
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          & $vswhere -latest -products * -format text | Select-String "displayName|installationVersion|catalog_productLineVersion"
+
+      - name: Get STIR source
+        run: |
+          git clone --recurse-submodules https://github.com/UCL/STIR.git C:\stir\src
+          cd C:\stir\src
+          git checkout $env:STIR_REF
+          git submodule update --init --recursive
+          "STIR_SHA=$(git rev-parse --short HEAD)" | Out-File -Append $env:GITHUB_ENV
+          git log -1 --format="%h %ad %s" --date=short
+
+      - name: Get Boost headers
+        run: |
+          $v = $env:BOOST_VERSION; $u = $v.Replace('.', '_')
+          Invoke-WebRequest "https://archives.boost.io/release/$v/source/boost_$u.7z" -OutFile C:\boost.7z
+          7z x C:\boost.7z -oC:\ -bso0 -bsp0
+          "BOOST_ROOT=C:\boost_$u" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Cache STIR install
+        id: cache-stir
+        uses: actions/cache@v4
+        with:
+          path: C:\stir\install
+          key: stir-install-${{ matrix.os }}-${{ env.STIR_SHA }}-boost${{ env.BOOST_VERSION }}
+
+      - name: Build and install STIR with MSVC (minimal options)
+        if: steps.cache-stir.outputs.cache-hit != 'true'
+        run: |
+          cmake -S C:\stir\src -B C:\stir\build -A x64 `
+            -DCMAKE_INSTALL_PREFIX=C:\stir\install `
+            -DBOOST_ROOT="$env:BOOST_ROOT" `
+            -DSTIR_OPENMP=ON -DBUILD_TESTING=OFF -DBUILD_SWIG_PYTHON=OFF -DGRAPHICS=None `
+            -DDISABLE_ITK=ON -DDISABLE_HDF5=ON -DDISABLE_CERN_ROOT=ON -DDISABLE_LLN_MATRIX=ON `
+            -DDISABLE_NLOHMANN_JSON=ON -DDISABLE_STIR_CUDA=ON -DDISABLE_NiftyPET_PROJECTOR=ON `
+            -DDISABLE_Parallelproj_PROJECTOR=ON -DDISABLE_PETSIRD=ON -DDISABLE_UPENN=ON
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build C:\stir\build --config Release --target install --parallel
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Locate installed STIR pieces
+        run: |
+          $inc = Get-ChildItem C:\stir\install\include -Directory -Filter "STIR-*" | Select-Object -First 1
+          $reg = Get-ChildItem C:\stir\install\share -Directory -Filter "STIR-*" | Select-Object -First 1
+          "STIR_INCLUDE=$($inc.FullName)"             | Out-File -Append $env:GITHUB_ENV
+          "STIR_REGISTRIES=$($reg.FullName)\src"      | Out-File -Append $env:GITHUB_ENV
+          Write-Host "Include dir:  $($inc.FullName)"
+          Write-Host "Libraries:"; Get-ChildItem C:\stir\install\lib\*.lib | ForEach-Object { "  $($_.Name)" }
+          Write-Host "Registries:"; Get-ChildItem "$($reg.FullName)\src\*_registries.cxx" | ForEach-Object { "  $($_.Name)" }
+
+      - name: "Scenario D: build the hand-written solution with msbuild"
+        run: |
+          $msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          & $msbuild StirConsumer.sln /m /v:minimal /p:Configuration=Release /p:Platform=x64 `
+            /p:StirIncludeDir="$env:STIR_INCLUDE" /p:StirLibDir=C:\stir\install\lib `
+            /p:StirRegistryDir="$env:STIR_REGISTRIES" /p:BoostIncludeDir="$env:BOOST_ROOT" `
+            /flp:"logfile=msbuild.log;verbosity=normal"
+          "BUILD_EXIT=$LASTEXITCODE" | Out-File -Append $env:GITHUB_ENV
+          exit $LASTEXITCODE
+
+      - name: "Scenario D: run the program"
+        run: |
+          $exe = Get-ChildItem -Recurse -Filter StirConsumer.exe | Select-Object -First 1
+          New-Item -ItemType Directory -Force run | Out-Null
+          Push-Location run
+          & $exe.FullName
+          $code = $LASTEXITCODE
+          Pop-Location
+          Write-Host "Exit code: $code"
+          Get-ChildItem run
+          if ($code -ne 0) { exit $code }
+          if (-not (Test-Path run\test.hv)) { Write-Error "test.hv was not written"; exit 1 }
+          Write-Host "OK: image written by a program built from a plain VS solution"
+
+      - name: Summary
+        if: always()
+        run: |
+          @"
+          ### ${{ matrix.os }}
+          | Item | Value |
+          |---|---|
+          | STIR commit | $env:STIR_SHA |
+          | Boost | $env:BOOST_VERSION |
+          | Job status | ${{ job.status }} |
+          "@ | Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.os }}
+          path: |
+            msbuild.log
+            run/
+          if-no-files-found: ignore

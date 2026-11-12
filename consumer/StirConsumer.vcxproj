@@ -5,9 +5,9 @@
   STIR's exported CMake targets would otherwise add automatically.
 
   Pass on the msbuild command line (or edit the defaults below):
-    StirIncludeDir  e.g. C:\stir\install\include\STIR-6.3
+    StirIncludeDir  e.g. C:\stir\install\include\STIR-6.5
     StirLibDir      e.g. C:\stir\install\lib
-    StirRegistryDir e.g. C:\stir\install\share\STIR-6.3\src
+    StirRegistryDir e.g. C:\stir\install\share\STIR-6.5\src
     BoostIncludeDir e.g. C:\boost_1_86_0
 -->
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
@@ -26,9 +26,9 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <StirIncludeDir Condition="'$(StirIncludeDir)'==''">C:\stir\install\include\STIR-6.3</StirIncludeDir>
+    <StirIncludeDir Condition="'$(StirIncludeDir)'==''">C:\stir\install\include\STIR-6.5</StirIncludeDir>
     <StirLibDir Condition="'$(StirLibDir)'==''">C:\stir\install\lib</StirLibDir>
-    <StirRegistryDir Condition="'$(StirRegistryDir)'==''">C:\stir\install\share\STIR-6.3\src</StirRegistryDir>
+    <StirRegistryDir Condition="'$(StirRegistryDir)'==''">C:\stir\install\share\STIR-6.5\src</StirRegistryDir>
     <BoostIncludeDir Condition="'$(BoostIncludeDir)'==''">C:\boost</BoostIncludeDir>
   </PropertyGroup>
 
@@ -64,14 +64,10 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <AdditionalLibraryDirectories>$(StirLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <!-- 6. every installed STIR .lib (filled in below from a wildcard) -->
-      <AdditionalDependencies>@(StirLib->'%(Filename)%(Extension)');%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- 6. every STIR .lib from <install>\lib (this list is for a minimal STIR 6.5 build) -->
+      <AdditionalDependencies>analytic_DDSR2D.lib;analytic_FBP2D.lib;analytic_FBP3DRP.lib;analytic_GRD2D.lib;analytic_SRT2D.lib;analytic_SRT2DSPECT.lib;eval_buildblock.lib;iterative_KOSMAPOSL.lib;iterative_OSMAPOSL.lib;iterative_OSSPS.lib;scatter_buildblock.lib;Shape_buildblock.lib;stir_buildblock.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-
-  <ItemGroup>
-    <StirLib Include="$(StirLibDir)\*.lib" />
-  </ItemGroup>
 
   <ItemGroup>
     <ClCompile Include="demo_create_image.cxx" />
